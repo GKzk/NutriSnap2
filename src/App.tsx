@@ -136,6 +136,16 @@ const INITIAL_PROFILE: UserProfile = {
 
 const TODAY_STR = new Date().toISOString().split("T")[0];
 
+const getAnalyzeEndpoint = () => {
+  if (typeof window !== "undefined") {
+    const { protocol, hostname, port } = window.location;
+    if (protocol === "capacitor:" || (hostname === "localhost" && !port)) {
+      return "https://ais-pre-s4xkn3dceqgoobyyllnr74-177080461978.us-west2.run.app/api/analyze-food";
+    }
+  }
+  return "/api/analyze-food";
+};
+
 const INITIAL_MEALS: MealItem[] = [
   {
     id: "m-1",
@@ -292,7 +302,7 @@ export default function App() {
     const stepTimer2 = setTimeout(() => setAnalysisStep(3), 1800);
 
     try {
-      const response = await fetch("/api/analyze-food", {
+      const response = await fetch(getAnalyzeEndpoint(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -332,7 +342,7 @@ export default function App() {
 
   const sendToBackend = async (base64Image: string, mimeType: string, description: string) => {
     try {
-      const response = await fetch("/api/analyze-food", {
+      const response = await fetch(getAnalyzeEndpoint(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image: base64Image, mimeType, description })
@@ -859,9 +869,9 @@ export default function App() {
                   <Github className="w-4 h-4 text-emerald-400" />
                   <span>1. Репозиторий на GitHub</span>
                 </div>
-                <p>Удалённый репозиторий <b>GKzk/NutriSnap</b> уже прописан как origin. Выполните пуш с авторизацией:</p>
+                <p>Удалённый репозиторий <b>GKzk/NutriSnap2</b> синхронизирован. После синхронизации GitHub Actions соберёт APK автоматически:</p>
                 <code className="block bg-slate-900 p-2 rounded-lg text-emerald-300 font-mono text-[11px]">
-                  git push -u origin main
+                  https://github.com/GKzk/NutriSnap2/actions
                 </code>
               </div>
 
