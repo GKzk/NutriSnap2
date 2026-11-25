@@ -7,6 +7,9 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-web:
     runs-on: ubuntu-latest
@@ -73,8 +76,16 @@ jobs:
         npx cap sync android
         cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon
 
-    - name: Upload Android APK
+    - name: Upload Android APK artifact
       uses: actions/upload-artifact@v4
       with:
         name: NutriSnap-debug-apk
         path: android/app/build/outputs/apk/debug/app-debug.apk
+
+    - name: Publish direct APK to GitHub Releases
+      if: github.ref == 'refs/heads/main'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        cp android/app/build/outputs/apk/debug/app-debug.apk NutriSnap.apk
+        gh release upload latest NutriSnap.apk --clobber || gh release create latest NutriSnap.apk --target "${{ github.sha }}" --title "NutriSnap Android APK" --notes "Нажмите на NutriSnap.apk ниже, чтобы скачать и установить приложение на Android без распаковки архива."

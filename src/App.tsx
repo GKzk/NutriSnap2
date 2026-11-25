@@ -864,28 +864,37 @@ export default function App() {
             </div>
 
             <div className="space-y-4 text-xs text-slate-300 leading-relaxed">
-              <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-1">
+              <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
                 <div className="font-bold text-white flex items-center space-x-1.5">
-                  <Github className="w-4 h-4 text-emerald-400" />
-                  <span>1. Репозиторий на GitHub</span>
+                  <Download className="w-4 h-4 text-emerald-400" />
+                  <span>1. Скачать готовый Android APK (без архивов)</span>
                 </div>
-                <p>Удалённый репозиторий <b>GKzk/NutriSnap2</b> синхронизирован. После синхронизации GitHub Actions соберёт APK автоматически:</p>
-                <code className="block bg-slate-900 p-2 rounded-lg text-emerald-300 font-mono text-[11px]">
-                  https://github.com/GKzk/NutriSnap2/actions
-                </code>
+                <p>Нажмите на кнопку ниже, чтобы скачать чистый файл <b>NutriSnap.apk</b> напрямую из раздела Releases:</p>
+                <a
+                  href="https://github.com/GKzk/NutriSnap2/releases/latest/download/NutriSnap.apk"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center justify-center space-x-2 w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-2.5 px-4 rounded-xl text-xs transition shadow-lg shadow-emerald-500/20"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Скачать NutriSnap.apk</span>
+                </a>
+                <a
+                  href="https://github.com/GKzk/NutriSnap2/releases"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block text-center text-[11px] text-emerald-400 hover:underline pt-1"
+                >
+                  Открыть страницу Releases на GitHub →
+                </a>
               </div>
 
               <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-1">
                 <div className="font-bold text-white flex items-center space-x-1.5">
-                  <Download className="w-4 h-4 text-sky-400" />
-                  <span>2. Сборка APK для Android</span>
+                  <Github className="w-4 h-4 text-sky-400" />
+                  <span>2. Репозиторий и автосборка</span>
                 </div>
-                <p>После пуша GitHub Actions сам соберёт <b>NutriSnap-debug-apk</b> во вкладке Actions. Либо локально:</p>
-                <code className="block bg-slate-900 p-2 rounded-lg text-sky-300 font-mono text-[11px]">
-                  npm install @capacitor/core @capacitor/cli @capacitor/android<br/>
-                  npx cap add android && npx cap sync android<br/>
-                  cd android && ./gradlew assembleDebug
-                </code>
+                <p>Код синхронизирован с <b>GKzk/NutriSnap2</b>. При каждом обновлении GitHub Actions сам обновляет APK в релизах.</p>
               </div>
 
               <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-1">
