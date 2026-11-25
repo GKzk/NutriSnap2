@@ -1,11 +1,18 @@
-<div align="center">
+# NutriSnap — ИИ Трекер Калорий по Фото
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+Простое и интуитивное приложение для подсчёта калорий и БЖУ по фотографии блюда с историей приёмов пищи, трекером воды и профилем целей.
 
-  <h1>Built with AI Studio</h2>
+## Возможности
+- Анализ фотографии еды с помощью Gemini AI (название, вес, ккал, БЖУ, ингредиенты, совет)
+- Дневник питания и история приёмов пищи в личном профиле
+- Поддержка установки на iPhone (iOS PWA через Safari → «На экран „Домой“») и встроенный режим предпросмотра iPhone 16 Pro
+- Автоматическая сборка Android APK через GitHub Actions (`.github/workflows/ci.yml`)
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+## Запуск локально
+```bash
+npm install
+GEMINI_API_KEY=your_key npm run dev
+```
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
-
-</div>
+## Сборка Android APK
+При каждом пуше в ветку `main` GitHub Actions автоматически собирает `app-debug.apk` и сохраняет его в артефактах (`NutriSnap-debug-apk`) во вкладке **Actions**.
