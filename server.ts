@@ -36,7 +36,7 @@ async function startServer() {
         return res.status(400).json({ error: "Необходимо передать изображение еды." });
       }
 
-      const cleanBase64 = image.replace(/^data:image\/[a-z]+;base64,/, "");
+      const cleanBase64 = image.replace(/^data:[^;]+;base64,/, "");
       const resolvedMimeType = mimeType || "image/jpeg";
 
       const prompt = `Ты профессиональный диетолог и эксперт по нутрициологии. Проанализируй эту фотографию еды/блюда.
@@ -58,31 +58,50 @@ ${description ? `Дополнительное описание от пользо
   "aiTip": "Краткий совет или нутрициологический комментарий к этому блюду на русском языке"
 }`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-4-hydrogen",
-        contents: [
-          {
-            inlineData: {
-              mimeType: resolvedMimeType,
-              data: cleanBase64,
-            },
-          },
-          {
-            text: prompt,
-          },
-        ],
-        config: {
-          responseMimeType: "application/json",
-          systemInstruction: "Ты опытный нутрициолог и эксперт по подсчету калорий. Отвечай только валидным JSON согласно схеме.",
-        },
-      });
+      const modelsToTry = ["gemini-4-hydrogen", "gemini-4-hydrogen", "gemini-3.1-flash-lite"];
+      let responseText: string | undefined;
+      let lastError: any;
 
-      const textResult = response.text;
-      if (!textResult) {
-        throw new Error("Не удалось получить ответ от ИИ.");
+      for (let attempt = 0; attempt < modelsToTry.length; attempt++) {
+        try {
+          const response = await ai.models.generateContent({
+            model: modelsToTry[attempt],
+            contents: {
+              parts: [
+                {
+                  inlineData: {
+                    mimeType: resolvedMimeType,
+                    data: cleanBase64,
+                  },
+                },
+                {
+                  text: prompt,
+                },
+              ],
+            },
+            config: {
+              responseMimeType: "application/json",
+              systemInstruction: "Ты опытный нутрициолог и эксперт по подсчету калорий. Отвечай только валидным JSON согласно схеме.",
+            },
+          });
+          responseText = response.text;
+          if (responseText) break;
+        } catch (err: any) {
+          lastError = err;
+          const msg = String(err?.message || "");
+          const isTransient = msg.includes("503") || msg.includes("UNAVAILABLE") || msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED");
+          if (!isTransient || attempt === modelsToTry.length - 1) {
+            throw err;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 600 * (attempt + 1)));
+        }
       }
 
-      let cleanedJsonStr = textResult.trim();
+      if (!responseText) {
+        throw lastError || new Error("Не удалось получить ответ от ИИ.");
+      }
+
+      let cleanedJsonStr = responseText.trim();
       if (cleanedJsonStr.startsWith("```json")) {
         cleanedJsonStr = cleanedJsonStr.replace(/^```json\s*/, "").replace(/\s*```$/, "");
       } else if (cleanedJsonStr.startsWith("```")) {
