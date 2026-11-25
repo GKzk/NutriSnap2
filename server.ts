@@ -1,4 +1,5 @@
 import express from "express";
+import { createServer } from "http";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
@@ -116,10 +117,15 @@ ${description ? `Дополнительное описание от пользо
     }
   });
 
+  const httpServer = createServer(app);
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: process.env.DISABLE_HMR === "true" ? false : { server: httpServer },
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);
@@ -132,7 +138,7 @@ ${description ? `Дополнительное описание от пользо
   }
 
   const port = process.env.PORT || 3000;
-  app.listen(port, () => {
+  httpServer.listen(port, () => {
     console.log(`Server running on http://localhost:${port}`);
   });
 }
