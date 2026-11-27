@@ -3,1009 +3,1132 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Camera,
-  Upload,
-  Utensils,
+  Image as ImageIcon,
+  Plus,
   Flame,
   Calendar,
   User,
-  TrendingUp,
-  Droplet,
-  Plus,
-  Trash2,
+  Settings,
+  Calculator,
   Check,
-  Sparkles,
-  ChevronRight,
-  Info,
-  Clock,
-  Award,
-  Search,
-  Coffee,
-  Sun,
-  Moon,
-  Apple,
-  RotateCcw,
-  Zap,
-  ShieldCheck,
-  Smartphone,
-  Github,
-  Download,
-  ExternalLink,
-  Maximize2
-} from "lucide-react";
-import { PWAInstallButton, OfflineIndicator } from "./components/PWAInstallButton";
+  X,
+  Trash2,
+  Utensils,
+  Pencil,
+} from 'lucide-react';
+import {
+  AppSettings,
+  MealEntry,
+  MealType,
+  RequestHistoryEntry,
+  UserProfile,
+} from './types';
+import { getMealTypeText, translations } from './i18n';
+import { compressImageFile, getLocalDateStr } from './utils/calorieCalc';
+import { Onboarding } from './components/Onboarding';
+import { RecommendationsModal } from './components/RecommendationsModal';
+import { SettingsModal } from './components/SettingsModal';
+import { DiaryView } from './components/DiaryView';
+import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallButton';
 
-interface Ingredient {
-  name: string;
-  amount: string;
-}
-
-interface MealItem {
-  id: string;
-  timestamp: string; // ISO string
-  dateStr: string; // YYYY-MM-DD
-  dishName: string;
-  weightGrams: number;
-  calories: number;
-  protein: number;
-  fat: number;
-  carbs: number;
-  mealType: "breakfast" | "lunch" | "dinner" | "snack";
-  ingredients: Ingredient[];
-  healthScore: number;
-  aiTip: string;
-  image: string; // base64 or url
-}
-
-interface UserProfile {
-  name: string;
-  targetCalories: number;
-  targetWater: number;
-  currentWeight: number;
-  targetWeight: number;
-  goalType: "lose" | "maintain" | "gain";
-}
-
-const PRESET_DISHES = [
-  {
-    name: "Салат Цезарь с курицей",
-    url: "https://images.unsplash.com/photo-1550304943-4f24f54ddde9?w=600&auto=format&fit=crop&q=80",
-    mealType: "lunch" as const,
-    calories: 380,
-    protein: 28,
-    fat: 22,
-    carbs: 12,
-    weightGrams: 280,
-    healthScore: 8,
-    aiTip: "Отличный источник белка и зелени. Соус можно сделать менее калорийным.",
-    ingredients: [
-      { name: "Куриная грудка гриль", amount: "120г" },
-      { name: "Салат Романо", amount: "80г" },
-      { name: "Соус Цезарь", amount: "30г" },
-      { name: "Сухарики", amount: "25г" },
-      { name: "Сыр Пармезан", amount: "25г" }
-    ]
-  },
-  {
-    name: "Поке с лососем и авокадо",
-    url: "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80",
-    mealType: "lunch" as const,
-    calories: 520,
-    protein: 31,
-    fat: 18,
-    carbs: 58,
-    weightGrams: 350,
-    healthScore: 9,
-    aiTip: "Полезные полиненасыщенные жиры омега-3 и сложные углеводы.",
-    ingredients: [
-      { name: "Лосось слабосоленый", amount: "100г" },
-      { name: "Рис", amount: "150г" },
-      { name: "Авокадо", amount: "60г" },
-      { name: "Эдамаме", amount: "40г" }
-    ]
-  },
-  {
-    name: "Тост с авокадо и яйцом пашот",
-    url: "https://images.unsplash.com/photo-1525351484163-7529414344d8?w=600&auto=format&fit=crop&q=80",
-    mealType: "breakfast" as const,
-    calories: 340,
-    protein: 14,
-    fat: 20,
-    carbs: 26,
-    weightGrams: 200,
-    healthScore: 9,
-    aiTip: "Заряд энергии на утро с полезными жирами и качественным белком.",
-    ingredients: [
-      { name: "Хлеб цельнозерновой", amount: "2 кус." },
-      { name: "Авокадо", amount: "70г" },
-      { name: "Яйцо", amount: "1 шт" }
-    ]
-  }
-];
-
-const INITIAL_PROFILE: UserProfile = {
-  name: "Алексей",
-  targetCalories: 2000,
-  targetWater: 8,
-  currentWeight: 76.5,
-  targetWeight: 72.0,
-  goalType: "lose"
+const STORAGE_KEYS = {
+  profile: 'nutrisnap_v2_profile',
+  settings: 'nutrisnap_v2_settings',
+  meals: 'nutrisnap_v2_meals',
+  history: 'nutrisnap_v2_requests',
 };
 
-const TODAY_STR = new Date().toISOString().split("T")[0];
+const DEFAULT_PROFILE: UserProfile = {
+  name: '',
+  age: 28,
+  gender: 'male',
+  weightKg: 74,
+  heightCm: 176,
+  dailyCalorieLimit: 2200,
+  workActivity: 'moderate',
+  doesSports: false,
+  sportsFrequency: 'none',
+  steps8kDaily: true,
+  onboarded: false,
+};
 
-const getAnalyzeEndpoint = () => {
-  if (typeof window !== "undefined") {
+const DEFAULT_SETTINGS: AppSettings = {
+  language: 'ru',
+  theme: 'light',
+};
+
+function getAnalyzeEndpoint(): string {
+  if (typeof window !== 'undefined') {
     const { protocol, hostname, port } = window.location;
-    if (protocol === "capacitor:" || (hostname === "localhost" && !port)) {
-      return "https://ais-pre-s4xkn3dceqgoobyyllnr74-177080461978.us-west2.run.app/api/analyze-food";
+    if (protocol === 'capacitor:' || (hostname === 'localhost' && !port)) {
+      return 'https://ais-pre-s4xkn3dceqgoobyyllnr74-177080461978.us-west2.run.app/api/analyze-food';
     }
   }
-  return "/api/analyze-food";
-};
-
-const INITIAL_MEALS: MealItem[] = [
-  {
-    id: "m-1",
-    timestamp: new Date(new Date().setHours(8, 30)).toISOString(),
-    dateStr: TODAY_STR,
-    dishName: "Тост с авокадо и яйцом пашот",
-    weightGrams: 200,
-    calories: 340,
-    protein: 14,
-    fat: 20,
-    carbs: 26,
-    mealType: "breakfast",
-    ingredients: [
-      { name: "Хлеб цельнозерновой", amount: "2 кус." },
-      { name: "Авокадо", amount: "70г" },
-      { name: "Яйцо", amount: "1 шт" }
-    ],
-    healthScore: 9,
-    aiTip: "Отличный завтрак с полезными жирами!",
-    image: "https://images.unsplash.com/photo-1525351484163-7529414344d8?w=600&auto=format&fit=crop&q=80"
-  },
-  {
-    id: "m-2",
-    timestamp: new Date(new Date().setHours(13, 45)).toISOString(),
-    dateStr: TODAY_STR,
-    dishName: "Поке с лососем и авокадо",
-    weightGrams: 350,
-    calories: 520,
-    protein: 31,
-    fat: 18,
-    carbs: 58,
-    mealType: "lunch",
-    ingredients: [
-      { name: "Лосось", amount: "100г" },
-      { name: "Рис", amount: "150г" },
-      { name: "Авокадо", amount: "60г" }
-    ],
-    healthScore: 9,
-    aiTip: "Сбалансированный обед богатый омега-3.",
-    image: "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80"
-  }
-];
+  return '/api/analyze-food';
+}
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"dashboard" | "history" | "profile" | "advice">("dashboard");
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.settings);
+      return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS;
+    } catch {
+      return DEFAULT_SETTINGS;
+    }
+  });
+
   const [profile, setProfile] = useState<UserProfile>(() => {
-    const saved = localStorage.getItem("nutrisnap_profile");
-    return saved ? JSON.parse(saved) : INITIAL_PROFILE;
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.profile);
+      return saved ? { ...DEFAULT_PROFILE, ...JSON.parse(saved) } : DEFAULT_PROFILE;
+    } catch {
+      return DEFAULT_PROFILE;
+    }
   });
 
-  const [meals, setMeals] = useState<MealItem[]>(() => {
-    const saved = localStorage.getItem("nutrisnap_meals");
-    return saved ? JSON.parse(saved) : INITIAL_MEALS;
+  const [meals, setMeals] = useState<MealEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.meals);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
   });
 
-  const [waterDrank, setWaterDrank] = useState<number>(() => {
-    const saved = localStorage.getItem(`nutrisnap_water_${TODAY_STR}`);
-    return saved ? parseInt(saved, 10) : 3;
+  const [requestHistory, setRequestHistory] = useState<RequestHistoryEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.history);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
   });
 
-  // AI Scanning state
+  const [activeTab, setActiveTab] = useState<'today' | 'diary' | 'profile'>('today');
+  const [selectedDate, setSelectedDate] = useState<string>(() => getLocalDateStr());
+  const [showRecommendations, setShowRecommendations] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Inline daily limit edit
+  const [editingLimit, setEditingLimit] = useState(false);
+  const [limitDraft, setLimitDraft] = useState('');
+
+  // Photo capture & AI state
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisStep, setAnalysisStep] = useState(0);
-  const [pendingMeal, setPendingMeal] = useState<Partial<MealItem> | null>(null);
-  const [userPrompt, setUserPrompt] = useState("");
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [aiWarning, setAiWarning] = useState<string | null>(null);
+  const [pendingMeal, setPendingMeal] = useState<Omit<MealEntry, 'id' | 'dateStr' | 'timestamp'> | null>(null);
 
-  // Manual Add Modal
-  const [showManualModal, setShowManualModal] = useState(false);
-  const [manualForm, setManualForm] = useState({
-    dishName: "",
-    calories: 350,
-    protein: 20,
-    fat: 15,
-    carbs: 35,
-    weightGrams: 250,
-    mealType: "lunch" as MealItem["mealType"],
-    image: "https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80"
-  });
-
-  // iPhone Mockup & Export Modals
-  const [showIphoneMockup, setShowIphoneMockup] = useState(false);
-  const [showExportModal, setShowExportModal] = useState(false);
+  // Profile edit state
+  const [profileDraft, setProfileDraft] = useState<UserProfile>(profile);
 
   useEffect(() => {
-    localStorage.setItem("nutrisnap_profile", JSON.stringify(profile));
+    setProfileDraft(profile);
+  }, [profile]);
+
+  // Apply light / dark class to <html>
+  useEffect(() => {
+    const root = document.documentElement;
+    if (settings.theme === 'dark') {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+    const metaTheme = document.querySelector('meta[name="theme-color"]');
+    if (metaTheme) {
+      metaTheme.setAttribute('content', settings.theme === 'dark' ? '#020617' : '#f8fafc');
+    }
+    localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(settings));
+  }, [settings]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.profile, JSON.stringify(profile));
   }, [profile]);
 
   useEffect(() => {
-    localStorage.setItem("nutrisnap_meals", JSON.stringify(meals));
+    try {
+      localStorage.setItem(STORAGE_KEYS.meals, JSON.stringify(meals));
+    } catch {
+      // Keep running in memory if storage quota exceeded
+    }
   }, [meals]);
 
   useEffect(() => {
-    localStorage.setItem(`nutrisnap_water_${TODAY_STR}`, waterDrank.toString());
-  }, [waterDrank]);
-
-  const todayMeals = meals.filter((m) => m.dateStr === TODAY_STR);
-  const totalCalories = todayMeals.reduce((sum, m) => sum + m.calories, 0);
-  const totalProtein = todayMeals.reduce((sum, m) => sum + m.protein, 0);
-  const totalFat = todayMeals.reduce((sum, m) => sum + m.fat, 0);
-  const totalCarbs = todayMeals.reduce((sum, m) => sum + m.carbs, 0);
-
-  const caloriePercentage = Math.min(100, Math.round((totalCalories / profile.targetCalories) * 100));
-  const remainingCalories = Math.max(0, profile.targetCalories - totalCalories);
-
-  const handleImageFile = async (file: File) => {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const base64Image = e.target?.result as string;
-      await analyzeImageWithAI(base64Image, file.type);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handlePresetSelect = async (preset: typeof PRESET_DISHES[0]) => {
-    setIsAnalyzing(true);
-    setAnalysisStep(1);
-    setTimeout(() => setAnalysisStep(2), 700);
-    setTimeout(() => setAnalysisStep(3), 1400);
-
     try {
-      const res = await fetch(preset.url);
-      const blob = await res.blob();
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const base64data = reader.result as string;
-        await sendToBackend(base64data, blob.type, userPrompt || preset.name);
-      };
-      reader.readAsDataURL(blob);
-    } catch (err) {
-      setTimeout(() => {
-        setIsAnalyzing(false);
-        setPendingMeal({
-          dishName: preset.name,
-          weightGrams: preset.weightGrams,
-          calories: preset.calories,
-          protein: preset.protein,
-          fat: preset.fat,
-          carbs: preset.carbs,
-          mealType: preset.mealType,
-          ingredients: preset.ingredients,
-          healthScore: preset.healthScore,
-          aiTip: preset.aiTip,
-          image: preset.url
-        });
-      }, 1500);
+      localStorage.setItem(STORAGE_KEYS.history, JSON.stringify(requestHistory.slice(0, 40)));
+    } catch {
+      // Ignore quota errors
     }
+  }, [requestHistory]);
+
+  const t = translations[settings.language];
+  const todayStr = getLocalDateStr();
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage((prev) => (prev === msg ? null : prev));
+    }, 2800);
   };
 
-  const analyzeImageWithAI = async (base64Image: string, mimeType: string) => {
+  const todayMeals = useMemo(
+    () => meals.filter((m) => m.dateStr === todayStr),
+    [meals, todayStr]
+  );
+
+  const todayTotals = useMemo(
+    () =>
+      todayMeals.reduce(
+        (acc, m) => ({
+          calories: acc.calories + m.calories,
+          protein: acc.protein + m.protein,
+          fat: acc.fat + m.fat,
+          carbs: acc.carbs + m.carbs,
+        }),
+        { calories: 0, protein: 0, fat: 0, carbs: 0 }
+      ),
+    [todayMeals]
+  );
+
+  const limit = Math.max(1, profile.dailyCalorieLimit);
+  const progressPct = Math.min(100, Math.round((todayTotals.calories / limit) * 100));
+  const diffCalories = limit - todayTotals.calories;
+
+  const updateSettings = (patch: Partial<AppSettings>) => {
+    setSettings((prev) => ({ ...prev, ...patch }));
+  };
+
+  const handlePhotoSelected = async (file: File) => {
     setIsAnalyzing(true);
-    setAnalysisStep(1);
-    const stepTimer1 = setTimeout(() => setAnalysisStep(2), 900);
-    const stepTimer2 = setTimeout(() => setAnalysisStep(3), 1800);
+    setAiWarning(null);
+
+    let aiDataUrl = '';
+    let thumbDataUrl = '';
 
     try {
+      const compressed = await compressImageFile(file);
+      aiDataUrl = compressed.aiDataUrl;
+      thumbDataUrl = compressed.thumbDataUrl;
+    } catch {
+      setIsAnalyzing(false);
+      showToast(t.aiErrorFallback);
+      return;
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 45000);
+
       const response = await fetch(getAnalyzeEndpoint(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          image: base64Image,
-          mimeType: mimeType || "image/jpeg",
-          description: userPrompt
-        })
+          image: aiDataUrl,
+          mimeType: 'image/jpeg',
+          language: settings.language,
+        }),
+        signal: controller.signal,
       });
 
-      clearTimeout(stepTimer1);
-      clearTimeout(stepTimer2);
+      clearTimeout(timeoutId);
+
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error('Non-JSON response');
+      }
 
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Ошибка сервера");
+      if (!response.ok) {
+        throw new Error(data.error || 'Server error');
+      }
 
+      const parsedMeal: Omit<MealEntry, 'id' | 'dateStr' | 'timestamp'> = {
+        dishName: String(data.dishName || (settings.language === 'ru' ? 'Блюдо по фото' : 'Meal from photo')),
+        weightGrams: Math.max(1, Math.round(Number(data.weightGrams) || 250)),
+        calories: Math.max(0, Math.round(Number(data.calories) || 0)),
+        protein: Math.max(0, Math.round(Number(data.protein) || 0)),
+        fat: Math.max(0, Math.round(Number(data.fat) || 0)),
+        carbs: Math.max(0, Math.round(Number(data.carbs) || 0)),
+        mealType: (['breakfast', 'lunch', 'dinner', 'snack'].includes(data.mealType)
+          ? data.mealType
+          : 'lunch') as MealType,
+        ingredients: Array.isArray(data.ingredients) ? data.ingredients : [],
+        aiTip: String(data.aiTip || ''),
+        photoDataUrl: thumbDataUrl,
+        source: 'ai',
+      };
+
+      const reqEntry: RequestHistoryEntry = {
+        id: 'req-' + Date.now(),
+        timestamp: new Date().toISOString(),
+        ...parsedMeal,
+      };
+      setRequestHistory((prev) => [reqEntry, ...prev]);
+      setPendingMeal(parsedMeal);
+    } catch {
+      // Allow user to still save their photo & manually enter calories cleanly
+      setAiWarning(t.aiErrorFallback);
       setPendingMeal({
-        dishName: data.dishName || "Блюдо из фото",
-        weightGrams: data.weightGrams || 250,
-        calories: data.calories || 350,
-        protein: data.protein || 20,
-        fat: data.fat || 15,
-        carbs: data.carbs || 30,
-        mealType: data.mealType || "lunch",
-        ingredients: data.ingredients || [],
-        healthScore: data.healthScore || 8,
-        aiTip: data.aiTip || "",
-        image: base64Image
+        dishName: '',
+        weightGrams: 250,
+        calories: 300,
+        protein: 15,
+        fat: 10,
+        carbs: 35,
+        mealType: 'lunch',
+        ingredients: [],
+        aiTip: '',
+        photoDataUrl: thumbDataUrl,
+        source: 'manual',
       });
-    } catch (err: any) {
-      alert("Не удалось распознать блюдо: " + err.message);
     } finally {
       setIsAnalyzing(false);
-      setAnalysisStep(0);
-      setUserPrompt("");
     }
   };
 
-  const sendToBackend = async (base64Image: string, mimeType: string, description: string) => {
-    try {
-      const response = await fetch(getAnalyzeEndpoint(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: base64Image, mimeType, description })
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error);
-
-      setPendingMeal({
-        dishName: data.dishName || "Блюдо",
-        weightGrams: data.weightGrams || 250,
-        calories: data.calories || 350,
-        protein: data.protein || 20,
-        fat: data.fat || 15,
-        carbs: data.carbs || 30,
-        mealType: data.mealType || "lunch",
-        ingredients: data.ingredients || [],
-        healthScore: data.healthScore || 8,
-        aiTip: data.aiTip || "",
-        image: base64Image
-      });
-    } catch (err: any) {
-      alert("Ошибка ИИ: " + err.message);
-    } finally {
-      setIsAnalyzing(false);
-      setAnalysisStep(0);
-      setUserPrompt("");
-    }
+  const openManualEntry = () => {
+    setAiWarning(null);
+    setPendingMeal({
+      dishName: '',
+      weightGrams: 250,
+      calories: 350,
+      protein: 20,
+      fat: 12,
+      carbs: 40,
+      mealType: 'lunch',
+      ingredients: [],
+      aiTip: '',
+      photoDataUrl: '',
+      source: 'manual',
+    });
   };
 
-  const savePendingMeal = () => {
-    if (!pendingMeal) return;
-    const newMeal: MealItem = {
-      id: "meal-" + Date.now(),
-      timestamp: new Date().toISOString(),
-      dateStr: TODAY_STR,
-      dishName: pendingMeal.dishName || "Блюдо",
-      weightGrams: pendingMeal.weightGrams || 250,
-      calories: pendingMeal.calories || 300,
-      protein: pendingMeal.protein || 15,
-      fat: pendingMeal.fat || 10,
-      carbs: pendingMeal.carbs || 30,
-      mealType: pendingMeal.mealType || "lunch",
-      ingredients: pendingMeal.ingredients || [],
-      healthScore: pendingMeal.healthScore || 8,
-      aiTip: pendingMeal.aiTip || "",
-      image: pendingMeal.image || "https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop&q=80"
-    };
-
-    setMeals([newMeal, ...meals]);
-    setPendingMeal(null);
-    setActiveTab("history");
-  };
-
-  const saveManualMeal = (e: React.FormEvent) => {
+  const savePendingMeal = (e: React.FormEvent) => {
     e.preventDefault();
-    const newMeal: MealItem = {
-      id: "meal-" + Date.now(),
+    if (!pendingMeal) return;
+
+    const newEntry: MealEntry = {
+      id: 'meal-' + Date.now(),
+      dateStr: todayStr,
       timestamp: new Date().toISOString(),
-      dateStr: TODAY_STR,
-      dishName: manualForm.dishName || "Ручной ввод",
-      weightGrams: manualForm.weightGrams,
-      calories: manualForm.calories,
-      protein: manualForm.protein,
-      fat: manualForm.fat,
-      carbs: manualForm.carbs,
-      mealType: manualForm.mealType,
-      ingredients: [{ name: manualForm.dishName, amount: `${manualForm.weightGrams}г` }],
-      healthScore: 7,
-      aiTip: "Добавлено вручную.",
-      image: manualForm.image
+      dishName:
+        pendingMeal.dishName.trim() ||
+        (settings.language === 'ru' ? 'Приём пищи' : 'Meal'),
+      weightGrams: Math.max(1, Number(pendingMeal.weightGrams) || 250),
+      calories: Math.max(0, Number(pendingMeal.calories) || 0),
+      protein: Math.max(0, Number(pendingMeal.protein) || 0),
+      fat: Math.max(0, Number(pendingMeal.fat) || 0),
+      carbs: Math.max(0, Number(pendingMeal.carbs) || 0),
+      mealType: pendingMeal.mealType,
+      ingredients: pendingMeal.ingredients,
+      aiTip: pendingMeal.aiTip,
+      photoDataUrl: pendingMeal.photoDataUrl,
+      source: pendingMeal.source,
     };
 
-    setMeals([newMeal, ...meals]);
-    setShowManualModal(false);
-    setActiveTab("history");
+    setMeals((prev) => [newEntry, ...prev]);
+    setPendingMeal(null);
+    setAiWarning(null);
+    setSelectedDate(todayStr);
   };
 
-  const deleteMeal = (id: string) => {
-    setMeals(meals.filter((m) => m.id !== id));
+  const handleReuseRequest = (entry: RequestHistoryEntry) => {
+    const newEntry: MealEntry = {
+      id: 'meal-' + Date.now(),
+      dateStr: todayStr,
+      timestamp: new Date().toISOString(),
+      dishName: entry.dishName,
+      weightGrams: entry.weightGrams,
+      calories: entry.calories,
+      protein: entry.protein,
+      fat: entry.fat,
+      carbs: entry.carbs,
+      mealType: entry.mealType,
+      ingredients: entry.ingredients,
+      aiTip: entry.aiTip,
+      photoDataUrl: entry.photoDataUrl,
+      source: 'ai',
+    };
+    setMeals((prev) => [newEntry, ...prev]);
+    setSelectedDate(todayStr);
+    setActiveTab('today');
+    showToast(entry.dishName);
   };
 
-  const getMealTypeLabel = (type: MealItem["mealType"]) => {
-    switch (type) {
-      case "breakfast": return "Завтрак";
-      case "lunch": return "Обед";
-      case "dinner": return "Ужин";
-      case "snack": return "Перекус";
-    }
+  const handleDeleteMeal = (id: string) => {
+    setMeals((prev) => prev.filter((m) => m.id !== id));
   };
 
-  const getMealTypeIcon = (type: MealItem["mealType"]) => {
-    switch (type) {
-      case "breakfast": return <Sun className="w-4 h-4 text-amber-500" />;
-      case "lunch": return <Utensils className="w-4 h-4 text-emerald-500" />;
-      case "dinner": return <Moon className="w-4 h-4 text-indigo-500" />;
-      case "snack": return <Apple className="w-4 h-4 text-rose-500" />;
-    }
+  const handleResetAll = () => {
+    localStorage.removeItem(STORAGE_KEYS.profile);
+    localStorage.removeItem(STORAGE_KEYS.meals);
+    localStorage.removeItem(STORAGE_KEYS.history);
+    setMeals([]);
+    setRequestHistory([]);
+    setProfile(DEFAULT_PROFILE);
+    setActiveTab('today');
   };
 
-  // App core content renderer
-  const renderAppContent = () => (
-    <div className="min-h-full bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
-      {/* Top Header */}
-      <header className="sticky top-0 z-30 backdrop-blur-xl bg-slate-900/80 border-b border-slate-800 px-4 py-3">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <div className="flex items-center space-x-3 cursor-pointer" onClick={() => setActiveTab("dashboard")}>
-            <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20">
-              <Sparkles className="w-5 h-5 text-slate-950" />
-            </div>
-            <div>
-              <h1 className="text-base font-bold tracking-tight bg-gradient-to-r from-emerald-400 to-teal-200 bg-clip-text text-transparent">
-                NutriSnap
-              </h1>
-              <p className="text-[10px] text-slate-400">ИИ-калории</p>
-            </div>
-          </div>
+  // Show simple registration screen on first launch
+  if (!profile.onboarded) {
+    return (
+      <Onboarding
+        settings={settings}
+        onUpdateSettings={updateSettings}
+        onComplete={(newProfile) => setProfile(newProfile)}
+      />
+    );
+  }
 
-          <div className="flex items-center space-x-2">
-            <PWAInstallButton />
+  return (
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col transition-colors">
+      {/* Compact 1-row Top Bar */}
+      <header className="sticky top-0 z-30 h-14 pt-safe bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4">
+        <div className="max-w-4xl mx-auto h-full flex items-center justify-between gap-4">
+          <button
+            type="button"
+            onClick={() => setActiveTab('today')}
+            className="text-lg font-bold tracking-tight text-slate-900 dark:text-white whitespace-nowrap shrink-0"
+          >
+            {t.appName}
+          </button>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <PWAInstallButton language={settings.language} />
+
             <button
-              onClick={() => setShowExportModal(true)}
-              className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-xl text-xs font-semibold transition border border-slate-700"
-              title="GitHub & APK & iOS"
+              type="button"
+              onClick={() => setShowRecommendations(true)}
+              className="min-h-[40px] px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
             >
-              <Github className="w-4 h-4 text-emerald-400" />
-              <span className="hidden sm:inline">GitHub / APK</span>
+              <Calculator className="w-3.5 h-3.5" />
+              <span>{t.recommendations}</span>
             </button>
 
             <button
-              onClick={() => setShowIphoneMockup(!showIphoneMockup)}
-              className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 px-3 py-2 rounded-xl text-xs font-semibold transition border border-slate-700"
-              title="Понт на iPhone"
+              type="button"
+              onClick={() => setShowSettings(true)}
+              aria-label={t.settings}
+              className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
             >
-              <Smartphone className="w-4 h-4" />
-              <span className="hidden sm:inline">iPhone Вид</span>
+              <Settings className="w-5 h-5" />
             </button>
-
-            <button
-              onClick={() => {
-                if (fileInputRef.current) fileInputRef.current.click();
-              }}
-              className="flex items-center space-x-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3 py-2 rounded-xl text-xs transition shadow-lg shadow-emerald-500/20"
-            >
-              <Camera className="w-4 h-4" />
-              <span>Фото</span>
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => {
-                if (e.target.files?.[0]) handleImageFile(e.target.files[0]);
-              }}
-            />
           </div>
         </div>
       </header>
 
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-4xl w-full mx-auto p-4 md:p-6 pb-24">
-        {activeTab === "dashboard" && (
-          <div className="space-y-6">
-            <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-slate-850 border border-slate-800 rounded-3xl p-6 shadow-xl relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none"></div>
+      {/* Hidden native file inputs for Camera and Gallery */}
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = '';
+          if (f) handlePhotoSelected(f);
+        }}
+      />
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = '';
+          if (f) handlePhotoSelected(f);
+        }}
+      />
 
-              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative z-10">
-                <div className="space-y-1">
-                  <div className="flex items-center space-x-2 text-emerald-400 text-xs font-semibold uppercase tracking-wider">
-                    <Zap className="w-3.5 h-3.5" />
-                    <span>Дневной баланс</span>
-                  </div>
-                  <h2 className="text-2xl font-extrabold text-white">Привет, {profile.name}! 👋</h2>
-                  <p className="text-sm text-slate-400">
-                    Сегодня съедено <span className="text-emerald-400 font-bold">{totalCalories} ккал</span> из {profile.targetCalories}.
-                  </p>
-                </div>
-
-                <div className="flex items-center space-x-4 bg-slate-950/60 border border-slate-800/80 px-4 py-3 rounded-2xl w-full md:w-auto justify-between">
-                  <div className="text-center">
-                    <div className="text-xl font-black text-white">{totalCalories}</div>
-                    <div className="text-[10px] text-slate-400 uppercase">Потреблено</div>
-                  </div>
-                  <div className="h-6 w-px bg-slate-800"></div>
-                  <div className="text-center">
-                    <div className="text-xl font-black text-emerald-400">{remainingCalories}</div>
-                    <div className="text-[10px] text-slate-400 uppercase">Осталось</div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-6 space-y-2">
-                <div className="flex justify-between text-xs text-slate-400">
-                  <span>Прогресс</span>
-                  <span className="font-bold text-emerald-400">{caloriePercentage}%</span>
-                </div>
-                <div className="w-full bg-slate-950 h-3 rounded-full overflow-hidden p-0.5 border border-slate-800">
-                  <div
-                    className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all duration-500"
-                    style={{ width: `${caloriePercentage}%` }}
-                  ></div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3 mt-6 pt-6 border-t border-slate-800/80">
-                <div className="bg-slate-950/40 p-3 rounded-xl border border-slate-800/50">
-                  <div className="text-xs text-slate-400 mb-1">Белки</div>
-                  <div className="text-base font-bold text-emerald-400">{totalProtein}г</div>
-                </div>
-                <div className="bg-slate-950/40 p-3 rounded-xl border border-slate-800/50">
-                  <div className="text-xs text-slate-400 mb-1">Жиры</div>
-                  <div className="text-base font-bold text-amber-400">{totalFat}г</div>
-                </div>
-                <div className="bg-slate-950/40 p-3 rounded-xl border border-slate-800/50">
-                  <div className="text-xs text-slate-400 mb-1">Углеводы</div>
-                  <div className="text-base font-bold text-sky-400">{totalCarbs}г</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Water Tracker */}
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 flex items-center justify-between">
-              <div className="flex items-center space-x-4">
-                <div className="w-12 h-12 rounded-2xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
-                  <Droplet className="w-6 h-6 fill-sky-400/20" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-white text-sm">Водный баланс</h3>
-                  <p className="text-xs text-slate-400">Выпито стаканов: {waterDrank} из {profile.targetWater}</p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => setWaterDrank(Math.max(0, waterDrank - 1))}
-                  className="w-8 h-8 rounded-xl bg-slate-800 text-slate-300 flex items-center justify-center font-bold"
-                >
-                  -
-                </button>
-                <span className="font-bold text-sky-400 w-6 text-center">{waterDrank}</span>
-                <button
-                  onClick={() => setWaterDrank(waterDrank + 1)}
-                  className="w-8 h-8 rounded-xl bg-sky-500 text-slate-950 flex items-center justify-center font-bold shadow-md shadow-sky-500/20"
-                >
-                  +
-                </button>
-              </div>
-            </div>
-
-            {/* Camera Scan Action */}
-            <div className="bg-gradient-to-r from-emerald-950/40 via-slate-900 to-slate-900 border border-emerald-500/30 rounded-3xl p-6 relative overflow-hidden">
-              <div className="max-w-md relative z-10 space-y-3">
-                <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-semibold border border-emerald-500/20">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>ИИ Анализ по фото</span>
-                </div>
-                <h3 className="text-xl font-bold text-white">Сфотографируйте еду</h3>
-                <p className="text-sm text-slate-300">
-                  Загрузите снимок блюда, и наш ИИ мгновенно определит калории и БЖУ.
-                </p>
-
-                <div className="pt-2 flex flex-wrap gap-3">
-                  <button
-                    onClick={() => {
-                      if (fileInputRef.current) fileInputRef.current.click();
-                    }}
-                    className="flex items-center space-x-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-5 py-3 rounded-2xl text-sm transition shadow-lg shadow-emerald-500/25 active:scale-95"
-                  >
-                    <Camera className="w-5 h-5" />
-                    <span>Сделать фото</span>
-                  </button>
-
-                  <button
-                    onClick={() => setShowManualModal(true)}
-                    className="flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold px-4 py-3 rounded-2xl text-sm transition border border-slate-700"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Вручную</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Preset Dishes */}
-            <div className="space-y-4 pt-2">
-              <h3 className="text-base font-bold text-white flex items-center space-x-2">
-                <Utensils className="w-4 h-4 text-emerald-400" />
-                <span>Популярные блюда для теста</span>
-              </h3>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {PRESET_DISHES.map((preset, idx) => (
-                  <div
-                    key={idx}
-                    onClick={() => handlePresetSelect(preset)}
-                    className="group bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-emerald-500/50 rounded-2xl overflow-hidden cursor-pointer transition shadow-md flex flex-col"
-                  >
-                    <div className="h-32 overflow-hidden relative">
-                      <img src={preset.url} alt={preset.name} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
-                      <div className="absolute top-2 right-2 bg-slate-950/80 backdrop-blur-md px-2 py-0.5 rounded-xl text-xs font-bold text-emerald-400">
-                        {preset.calories} ккал
-                      </div>
+      {/* Main Content */}
+      <main className="flex-1 w-full max-w-4xl mx-auto px-4 py-5 pb-24">
+        {/* TODAY TAB */}
+        {activeTab === 'today' && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+            {/* Left / Main column: Daily Balance + Scan Actions */}
+            <div className="lg:col-span-7 space-y-5">
+              {/* Daily Balance Card */}
+              <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 space-y-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                      {t.dailyBalance}
                     </div>
-                    <div className="p-3 flex-1 flex flex-col justify-between space-y-1">
-                      <h4 className="font-bold text-white text-xs group-hover:text-emerald-400 transition">{preset.name}</h4>
-                      <span className="text-[11px] text-emerald-400 font-semibold flex items-center">
-                        Распознать <ChevronRight className="w-3 h-3 ml-0.5" />
-                      </span>
-                    </div>
+                    <h1 className="text-xl font-bold text-slate-900 dark:text-white mt-0.5">
+                      {t.hello}, {profile.name}
+                    </h1>
                   </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
 
-        {activeTab === "history" && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-2xl font-extrabold text-white">История питания</h2>
-                <p className="text-sm text-slate-400">Все записанные приемы пищи</p>
-              </div>
-              <button
-                onClick={() => setShowManualModal(true)}
-                className="flex items-center space-x-1.5 bg-emerald-500 text-slate-950 font-bold px-4 py-2 rounded-xl text-sm"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Добавить</span>
-              </button>
-            </div>
-
-            {meals.length === 0 ? (
-              <div className="text-center py-16 bg-slate-900 border border-slate-800 rounded-3xl p-8 space-y-4">
-                <Utensils className="w-8 h-8 mx-auto text-slate-400" />
-                <h3 className="text-lg font-bold text-white">История пуста</h3>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {meals.map((meal) => (
-                  <div key={meal.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between gap-4">
-                    <div className="flex items-center space-x-3">
-                      <img src={meal.image} alt={meal.dishName} className="w-14 h-14 rounded-2xl object-cover shrink-0" />
-                      <div>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-xs text-emerald-400 font-semibold">{getMealTypeLabel(meal.mealType)}</span>
-                        </div>
-                        <h4 className="font-bold text-white text-sm">{meal.dishName}</h4>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-4">
-                      <div className="text-right">
-                        <div className="font-black text-emerald-400 text-sm">{meal.calories} ккал</div>
-                        <div className="text-[11px] text-slate-400">{meal.weightGrams}г</div>
-                      </div>
-                      <button onClick={() => deleteMeal(meal.id)} className="text-slate-500 hover:text-rose-400 p-2">
-                        <Trash2 className="w-4 h-4" />
+                  {!editingLimit ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLimitDraft(String(profile.dailyCalorieLimit));
+                        setEditingLimit(true);
+                      }}
+                      className="min-h-[38px] px-3 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      <span>{t.editLimit}</span>
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        min={800}
+                        max={8000}
+                        value={limitDraft}
+                        onChange={(e) => setLimitDraft(e.target.value)}
+                        className="w-20 min-h-[38px] font-mono tabular-nums bg-slate-50 dark:bg-slate-950 border border-emerald-500 rounded-xl px-2.5 text-sm text-slate-900 dark:text-white focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const parsed = Math.max(
+                            800,
+                            Math.min(8000, Number(limitDraft) || profile.dailyCalorieLimit)
+                          );
+                          setProfile((p) => ({ ...p, dailyCalorieLimit: parsed }));
+                          setEditingLimit(false);
+                          showToast(t.appliedToast);
+                        }}
+                        className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-xl bg-emerald-600 text-white"
+                      >
+                        <Check className="w-4 h-4" />
                       </button>
                     </div>
+                  )}
+                </div>
+
+                {/* Big Calorie Metrics */}
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                    <div className="font-mono tabular-nums text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
+                      {todayTotals.calories}
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      {t.consumed}
+                    </div>
                   </div>
-                ))}
+
+                  <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                    <div className="font-mono tabular-nums text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
+                      {profile.dailyCalorieLimit}
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      {t.limit}
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                    <div
+                      className={`font-mono tabular-nums text-xl sm:text-2xl font-bold ${
+                        diffCalories >= 0
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : 'text-amber-600 dark:text-amber-400'
+                      }`}
+                    >
+                      {Math.abs(diffCalories)}
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      {diffCalories >= 0 ? t.remaining : t.overLimit}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Progress Bar */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums">
+                    <span>{progressPct}%</span>
+                    <span>
+                      {todayTotals.calories} / {profile.dailyCalorieLimit} {t.kcal}
+                    </span>
+                  </div>
+                  <div className="w-full h-2.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-300 ${
+                        diffCalories >= 0 ? 'bg-emerald-600 dark:bg-emerald-500' : 'bg-amber-500'
+                      }`}
+                      style={{ width: `${progressPct}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Macros Strip */}
+                <div className="grid grid-cols-3 gap-3 pt-4 border-t border-slate-100 dark:border-slate-800 text-center">
+                  <div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">{t.protein}</div>
+                    <div className="font-mono tabular-nums text-base font-bold text-slate-900 dark:text-white mt-0.5">
+                      {todayTotals.protein}{t.gramsShort}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">{t.fat}</div>
+                    <div className="font-mono tabular-nums text-base font-bold text-slate-900 dark:text-white mt-0.5">
+                      {todayTotals.fat}{t.gramsShort}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">{t.carbs}</div>
+                    <div className="font-mono tabular-nums text-base font-bold text-slate-900 dark:text-white mt-0.5">
+                      {todayTotals.carbs}{t.gramsShort}
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              {/* Thumb-Friendly Photo & Add Controls */}
+              <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 space-y-3">
+                <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+                  {t.addMealTitle}
+                </h2>
+
+                <button
+                  type="button"
+                  onClick={() => cameraInputRef.current?.click()}
+                  className="w-full min-h-[52px] bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-2xl text-sm flex items-center justify-center gap-2.5 transition-colors active:scale-[0.99]"
+                >
+                  <Camera className="w-5 h-5" />
+                  <span>{t.takePhoto}</span>
+                </button>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => galleryInputRef.current?.click()}
+                    className="min-h-[46px] bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-900 dark:text-white font-semibold rounded-2xl text-sm flex items-center justify-center gap-2 transition-colors"
+                  >
+                    <ImageIcon className="w-4 h-4" />
+                    <span>{t.chooseGallery}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={openManualEntry}
+                    className="min-h-[46px] bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-900 dark:text-white font-semibold rounded-2xl text-sm flex items-center justify-center gap-2 transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>{t.addManual}</span>
+                  </button>
+                </div>
+              </section>
+            </div>
+
+            {/* Right / Secondary column: Today's Logged Meals */}
+            <section className="lg:col-span-5 space-y-3">
+              <div className="flex items-center justify-between px-1">
+                <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+                  {t.todayMeals}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedDate(todayStr);
+                    setActiveTab('diary');
+                  }}
+                  className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline min-h-[32px] px-1"
+                >
+                  {t.viewAllDiary}
+                </button>
               </div>
-            )}
+
+              {todayMeals.length === 0 ? (
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                  {t.noMealsToday}
+                </div>
+              ) : (
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl divide-y divide-slate-100 dark:divide-slate-800 overflow-hidden">
+                  {todayMeals.map((meal) => (
+                    <div key={meal.id} className="p-4 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        {meal.photoDataUrl ? (
+                          <img
+                            src={meal.photoDataUrl}
+                            alt={meal.dishName}
+                            referrerPolicy="no-referrer"
+                            className="w-12 h-12 rounded-xl object-cover shrink-0 bg-slate-100 dark:bg-slate-800"
+                          />
+                        ) : (
+                          <div className="w-12 h-12 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0 text-slate-400">
+                            <Utensils className="w-4 h-4" />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <div className="text-xs text-slate-500 dark:text-slate-400">
+                            {getMealTypeText(settings.language, meal.mealType)} ·{' '}
+                            {new Date(meal.timestamp).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </div>
+                          <div className="text-sm font-semibold text-slate-900 dark:text-white truncate">
+                            {meal.dishName}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="font-mono tabular-nums text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                          {meal.calories} {t.kcal}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteMeal(meal.id)}
+                          aria-label={t.deleteMeal}
+                          className="min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-400 hover:text-rose-500 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
           </div>
         )}
 
-        {activeTab === "profile" && (
-          <div className="space-y-6 max-w-xl mx-auto">
-            <h2 className="text-2xl font-extrabold text-white">Профиль и Цели</h2>
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 uppercase mb-1">Имя</label>
-                <input
-                  type="text"
-                  value={profile.name}
-                  onChange={(e) => setProfile({ ...profile, name: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 uppercase mb-1">Цель по калориям</label>
-                <input
-                  type="number"
-                  value={profile.targetCalories}
-                  onChange={(e) => setProfile({ ...profile, targetCalories: Number(e.target.value) })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white"
-                />
-              </div>
-              <button onClick={() => alert("Сохранено!")} className="w-full bg-emerald-500 text-slate-950 font-bold py-3 rounded-xl">
-                Сохранить профиль
+        {/* DIARY TAB */}
+        {activeTab === 'diary' && (
+          <DiaryView
+            language={settings.language}
+            meals={meals}
+            requestHistory={requestHistory}
+            dailyLimit={profile.dailyCalorieLimit}
+            selectedDate={selectedDate}
+            onSelectDate={setSelectedDate}
+            onDeleteMeal={handleDeleteMeal}
+            onReuseRequest={handleReuseRequest}
+          />
+        )}
+
+        {/* PROFILE TAB */}
+        {activeTab === 'profile' && (
+          <div className="max-w-lg mx-auto space-y-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+                {t.profileTitle}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowSettings(true)}
+                className="min-h-[40px] px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5"
+              >
+                <Settings className="w-4 h-4" />
+                <span>{t.settings}</span>
               </button>
             </div>
-          </div>
-        )}
 
-        {activeTab === "advice" && (
-          <div className="space-y-6 max-w-xl mx-auto">
-            <h2 className="text-2xl font-extrabold text-white">ИИ Нутрициолог</h2>
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
-              <p className="text-sm text-slate-300">
-                {totalCalories === 0
-                  ? "Добавьте первый прием пищи для анализа."
-                  : `Вы потребили ${totalCalories} ккал из ${profile.targetCalories}. Отличный баланс белков и углеводов сегодня!`}
-              </p>
-              <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl text-xs text-emerald-400 font-medium">
-                💡 Пейте чистую воду за 20 минут до еды для лучшего пищеварения.
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                setProfile({ ...profileDraft, onboarded: true });
+                showToast(t.save);
+              }}
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 space-y-4"
+            >
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
+                  {t.nameLabel}
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={profileDraft.name}
+                  onChange={(e) => setProfileDraft({ ...profileDraft, name: e.target.value })}
+                  className="w-full min-h-[44px] bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 text-sm text-slate-900 dark:text-white"
+                />
               </div>
-            </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
+                    {t.ageLabel}
+                  </label>
+                  <input
+                    type="number"
+                    min={12}
+                    max={100}
+                    value={profileDraft.age}
+                    onChange={(e) =>
+                      setProfileDraft({ ...profileDraft, age: Number(e.target.value) })
+                    }
+                    className="w-full min-h-[44px] font-mono tabular-nums bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 text-sm text-slate-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
+                    {t.genderLabel}
+                  </label>
+                  <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setProfileDraft({ ...profileDraft, gender: 'male' })}
+                      className={`min-h-[36px] rounded-lg text-xs font-semibold ${
+                        profileDraft.gender === 'male'
+                          ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                          : 'text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
+                      {t.male}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setProfileDraft({ ...profileDraft, gender: 'female' })}
+                      className={`min-h-[36px] rounded-lg text-xs font-semibold ${
+                        profileDraft.gender === 'female'
+                          ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                          : 'text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
+                      {t.female}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
+                    {t.weightLabel}
+                  </label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={profileDraft.weightKg}
+                    onChange={(e) =>
+                      setProfileDraft({ ...profileDraft, weightKg: Number(e.target.value) })
+                    }
+                    className="w-full min-h-[44px] font-mono tabular-nums bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 text-sm text-slate-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
+                    {t.heightLabel}
+                  </label>
+                  <input
+                    type="number"
+                    value={profileDraft.heightCm}
+                    onChange={(e) =>
+                      setProfileDraft({ ...profileDraft, heightCm: Number(e.target.value) })
+                    }
+                    className="w-full min-h-[44px] font-mono tabular-nums bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 text-sm text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
+                  {t.dailyLimitLabel}
+                </label>
+                <input
+                  type="number"
+                  min={800}
+                  max={8000}
+                  value={profileDraft.dailyCalorieLimit}
+                  onChange={(e) =>
+                    setProfileDraft({
+                      ...profileDraft,
+                      dailyCalorieLimit: Number(e.target.value),
+                    })
+                  }
+                  className="w-full min-h-[44px] font-mono tabular-nums bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 text-sm font-semibold text-emerald-600 dark:text-emerald-400"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full min-h-[48px] bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-2xl text-sm transition-colors"
+              >
+                {t.save}
+              </button>
+            </form>
           </div>
         )}
       </main>
 
-      {/* AI Analyzing Modal */}
+      {/* AI Analyzing Overlay */}
       {isAnalyzing && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 max-w-sm w-full text-center space-y-4">
-            <div className="w-16 h-16 rounded-3xl bg-emerald-500/20 flex items-center justify-center mx-auto text-emerald-400 animate-bounce">
-              <Camera className="w-8 h-8" />
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-7 max-w-xs w-full text-center space-y-4 shadow-2xl">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center mx-auto text-emerald-600 dark:text-emerald-400">
+              <Camera className="w-6 h-6 animate-pulse" />
             </div>
-            <h3 className="text-lg font-bold text-white">ИИ анализирует блюдо...</h3>
-            <p className="text-xs text-slate-400">Считаем калории и БЖУ</p>
+            <div className="space-y-1">
+              <div className="text-base font-bold text-slate-900 dark:text-white">
+                {t.analyzingTitle}
+              </div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                {t.analyzingSub}
+              </div>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Pending Meal Modal */}
+      {/* Review & Save Meal Modal (works for both AI photo results and Manual entry) */}
       {pendingMeal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-white">Результат ИИ анализа</h3>
-              <button onClick={() => setPendingMeal(null)} className="text-slate-400">✕</button>
-            </div>
-            <img src={pendingMeal.image} alt="Dish" className="w-full h-40 object-cover rounded-2xl" />
-            <input
-              type="text"
-              value={pendingMeal.dishName}
-              onChange={(e) => setPendingMeal({ ...pendingMeal, dishName: e.target.value })}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold"
-            />
-            <div className="grid grid-cols-4 gap-2 text-center text-xs">
-              <div className="bg-slate-950 p-2 rounded-xl">
-                <div className="text-slate-400">Ккал</div>
-                <div className="font-bold text-emerald-400">{pendingMeal.calories}</div>
-              </div>
-              <div className="bg-slate-950 p-2 rounded-xl">
-                <div className="text-slate-400">Белки</div>
-                <div className="font-bold">{pendingMeal.protein}г</div>
-              </div>
-              <div className="bg-slate-950 p-2 rounded-xl">
-                <div className="text-slate-400">Жиры</div>
-                <div className="font-bold">{pendingMeal.fat}г</div>
-              </div>
-              <div className="bg-slate-950 p-2 rounded-xl">
-                <div className="text-slate-400">Углеводы</div>
-                <div className="font-bold">{pendingMeal.carbs}г</div>
-              </div>
-            </div>
-            <button
-              onClick={savePendingMeal}
-              className="w-full bg-emerald-500 text-slate-950 font-bold py-3 rounded-xl shadow-lg shadow-emerald-500/20"
-            >
-              Сохранить в дневник
-            </button>
-          </div>
-        </div>
-      )}
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <form
+            onSubmit={savePendingMeal}
+            className="w-full max-w-md bg-white dark:bg-slate-900 border-t sm:border border-slate-200 dark:border-slate-800 rounded-t-3xl sm:rounded-3xl max-h-[92vh] flex flex-col shadow-2xl"
+          >
+            <div className="sm:hidden w-10 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full mx-auto mt-3" />
 
-      {/* Manual Add Modal */}
-      {showManualModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-white">Ручной ввод</h3>
-              <button onClick={() => setShowManualModal(false)} className="text-slate-400">✕</button>
-            </div>
-            <form onSubmit={saveManualMeal} className="space-y-3">
-              <input
-                type="text"
-                required
-                placeholder="Название блюда"
-                value={manualForm.dishName}
-                onChange={(e) => setManualForm({ ...manualForm, dishName: e.target.value })}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white text-sm"
-              />
-              <div className="grid grid-cols-2 gap-3">
-                <input
-                  type="number"
-                  placeholder="Калории"
-                  value={manualForm.calories}
-                  onChange={(e) => setManualForm({ ...manualForm, calories: Number(e.target.value) })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white text-sm"
-                />
-                <input
-                  type="number"
-                  placeholder="Вес (г)"
-                  value={manualForm.weightGrams}
-                  onChange={(e) => setManualForm({ ...manualForm, weightGrams: Number(e.target.value) })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white text-sm"
-                />
-              </div>
-              <button type="submit" className="w-full bg-emerald-500 text-slate-950 font-bold py-3 rounded-xl">
-                Добавить
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* GitHub & APK & iOS Export Modal */}
-      {showExportModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 space-y-5">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-white text-lg flex items-center space-x-2">
-                <Github className="w-5 h-5 text-emerald-400" />
-                <span>GitHub, APK & iOS Экспорт</span>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                {t.reviewTitle}
               </h3>
-              <button onClick={() => setShowExportModal(false)} className="text-slate-400">✕</button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingMeal(null);
+                  setAiWarning(null);
+                }}
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-500 dark:text-slate-400"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            <div className="space-y-4 text-xs text-slate-300 leading-relaxed">
-              <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
-                <div className="font-bold text-white flex items-center space-x-1.5">
-                  <Download className="w-4 h-4 text-emerald-400" />
-                  <span>1. Скачать готовый Android APK (без архивов)</span>
+            <div className="flex-1 overflow-y-auto p-5 space-y-4 pb-safe">
+              {aiWarning && (
+                <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+                  {aiWarning}
                 </div>
-                <p>Нажмите на кнопку ниже, чтобы скачать чистый файл <b>NutriSnap.apk</b> напрямую из раздела Releases:</p>
-                <a
-                  href="https://github.com/GKzk/NutriSnap2/releases/latest/download/NutriSnap.apk"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center justify-center space-x-2 w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-2.5 px-4 rounded-xl text-xs transition shadow-lg shadow-emerald-500/20"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Скачать NutriSnap.apk</span>
-                </a>
-                <a
-                  href="https://github.com/GKzk/NutriSnap2/releases"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block text-center text-[11px] text-emerald-400 hover:underline pt-1"
-                >
-                  Открыть страницу Releases на GitHub →
-                </a>
+              )}
+
+              {pendingMeal.photoDataUrl && (
+                <img
+                  src={pendingMeal.photoDataUrl}
+                  alt={pendingMeal.dishName || 'Meal'}
+                  referrerPolicy="no-referrer"
+                  className="w-full h-44 object-cover rounded-2xl bg-slate-100 dark:bg-slate-800"
+                />
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                  {t.dishNameLabel}
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder={t.dishNameLabel}
+                  value={pendingMeal.dishName}
+                  onChange={(e) =>
+                    setPendingMeal({ ...pendingMeal, dishName: e.target.value })
+                  }
+                  className="w-full min-h-[44px] bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 text-sm font-medium text-slate-900 dark:text-white"
+                />
               </div>
 
-              <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-1">
-                <div className="font-bold text-white flex items-center space-x-1.5">
-                  <Github className="w-4 h-4 text-sky-400" />
-                  <span>2. Репозиторий и автосборка</span>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                    {t.kcal}
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min={0}
+                    value={pendingMeal.calories}
+                    onChange={(e) =>
+                      setPendingMeal({ ...pendingMeal, calories: Number(e.target.value) })
+                    }
+                    className="w-full min-h-[44px] font-mono tabular-nums bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 text-sm font-bold text-emerald-600 dark:text-emerald-400"
+                  />
                 </div>
-                <p>Код синхронизирован с <b>GKzk/NutriSnap2</b>. При каждом обновлении GitHub Actions сам обновляет APK в релизах.</p>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                    {t.weightGramsLabel}
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={pendingMeal.weightGrams}
+                    onChange={(e) =>
+                      setPendingMeal({ ...pendingMeal, weightGrams: Number(e.target.value) })
+                    }
+                    className="w-full min-h-[44px] font-mono tabular-nums bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-4 text-sm text-slate-900 dark:text-white"
+                  />
+                </div>
               </div>
 
-              <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-1">
-                <div className="font-bold text-white flex items-center space-x-1.5">
-                  <Smartphone className="w-4 h-4 text-amber-400" />
-                  <span>3. Понт на iPhone (iOS PWA)</span>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                    {t.protein} ({t.gramsShort})
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={pendingMeal.protein}
+                    onChange={(e) =>
+                      setPendingMeal({ ...pendingMeal, protein: Number(e.target.value) })
+                    }
+                    className="w-full min-h-[42px] font-mono tabular-nums bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 text-sm text-center text-slate-900 dark:text-white"
+                  />
                 </div>
-                <p>Откройте приложение в Safari на iPhone, нажмите кнопку <b>«Поделиться»</b> и выберите <b>«На экран „Домой“»</b>. Приложение установится как нативное iOS-приложение!</p>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                    {t.fat} ({t.gramsShort})
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={pendingMeal.fat}
+                    onChange={(e) =>
+                      setPendingMeal({ ...pendingMeal, fat: Number(e.target.value) })
+                    }
+                    className="w-full min-h-[42px] font-mono tabular-nums bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 text-sm text-center text-slate-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                    {t.carbs} ({t.gramsShort})
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={pendingMeal.carbs}
+                    onChange={(e) =>
+                      setPendingMeal({ ...pendingMeal, carbs: Number(e.target.value) })
+                    }
+                    className="w-full min-h-[42px] font-mono tabular-nums bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 text-sm text-center text-slate-900 dark:text-white"
+                  />
+                </div>
               </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
+                  {t.mealTypeLabel}
+                </label>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {(['breakfast', 'lunch', 'dinner', 'snack'] as const).map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => setPendingMeal({ ...pendingMeal, mealType: type })}
+                      className={`min-h-[40px] rounded-xl text-xs font-semibold border transition-colors ${
+                        pendingMeal.mealType === type
+                          ? 'bg-emerald-600 border-emerald-600 text-white'
+                          : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      {getMealTypeText(settings.language, type)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {pendingMeal.aiTip && (
+                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                  {pendingMeal.aiTip}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                className="w-full min-h-[48px] bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-2xl text-sm flex items-center justify-center gap-2 transition-colors"
+              >
+                <Check className="w-4 h-4" />
+                <span>{t.saveWithPhoto}</span>
+              </button>
             </div>
-
-            <button
-              onClick={() => setShowExportModal(false)}
-              className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 rounded-xl text-sm"
-            >
-              Закрыть
-            </button>
-          </div>
+          </form>
         </div>
       )}
 
-      {/* Bottom Navigation */}
-      <nav className="sticky bottom-0 z-20 bg-slate-900/90 backdrop-blur-xl border-t border-slate-800 px-4 py-2">
-        <div className="max-w-md mx-auto flex items-center justify-around">
+      {/* Recommendations Modal */}
+      <RecommendationsModal
+        isOpen={showRecommendations}
+        onClose={() => setShowRecommendations(false)}
+        language={settings.language}
+        profile={profile}
+        onApplyLimit={(newLimit, updatedFields) => {
+          setProfile((prev) => ({
+            ...prev,
+            ...updatedFields,
+            dailyCalorieLimit: newLimit,
+          }));
+          showToast(t.appliedToast);
+        }}
+      />
+
+      {/* Settings Modal */}
+      <SettingsModal
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        settings={settings}
+        onUpdateSettings={updateSettings}
+        profile={profile}
+        onUpdateLimit={(newLimit) => {
+          setProfile((prev) => ({ ...prev, dailyCalorieLimit: newLimit }));
+          showToast(t.appliedToast);
+        }}
+        onResetAll={handleResetAll}
+      />
+
+      {/* Non-intrusive Toast */}
+      {toastMessage && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-semibold shadow-lg">
+          {toastMessage}
+        </div>
+      )}
+
+      {/* 3-Tab Bottom Navigation Bar */}
+      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 pb-safe">
+        <div className="max-w-md mx-auto grid grid-cols-3 h-16 items-center">
           <button
-            onClick={() => setActiveTab("dashboard")}
-            className={`flex flex-col items-center space-y-1 py-1 px-3 rounded-2xl transition ${activeTab === "dashboard" ? "text-emerald-400 font-bold" : "text-slate-400"}`}
+            type="button"
+            onClick={() => setActiveTab('today')}
+            className={`min-h-[48px] flex flex-col items-center justify-center gap-1 transition-colors ${
+              activeTab === 'today'
+                ? 'text-emerald-600 dark:text-emerald-400 font-semibold'
+                : 'text-slate-500 dark:text-slate-400'
+            }`}
           >
             <Flame className="w-5 h-5" />
-            <span className="text-[10px]">Главная</span>
+            <span className="text-[11px] tracking-tight">{t.navToday}</span>
           </button>
+
           <button
-            onClick={() => setActiveTab("history")}
-            className={`flex flex-col items-center space-y-1 py-1 px-3 rounded-2xl transition ${activeTab === "history" ? "text-emerald-400 font-bold" : "text-slate-400"}`}
+            type="button"
+            onClick={() => setActiveTab('diary')}
+            className={`min-h-[48px] flex flex-col items-center justify-center gap-1 transition-colors ${
+              activeTab === 'diary'
+                ? 'text-emerald-600 dark:text-emerald-400 font-semibold'
+                : 'text-slate-500 dark:text-slate-400'
+            }`}
           >
             <Calendar className="w-5 h-5" />
-            <span className="text-[10px]">Дневник</span>
+            <span className="text-[11px] tracking-tight">{t.navDiary}</span>
           </button>
+
           <button
-            onClick={() => setActiveTab("advice")}
-            className={`flex flex-col items-center space-y-1 py-1 px-3 rounded-2xl transition ${activeTab === "advice" ? "text-emerald-400 font-bold" : "text-slate-400"}`}
-          >
-            <Sparkles className="w-5 h-5" />
-            <span className="text-[10px]">Советник</span>
-          </button>
-          <button
-            onClick={() => setActiveTab("profile")}
-            className={`flex flex-col items-center space-y-1 py-1 px-3 rounded-2xl transition ${activeTab === "profile" ? "text-emerald-400 font-bold" : "text-slate-400"}`}
+            type="button"
+            onClick={() => setActiveTab('profile')}
+            className={`min-h-[48px] flex flex-col items-center justify-center gap-1 transition-colors ${
+              activeTab === 'profile'
+                ? 'text-emerald-600 dark:text-emerald-400 font-semibold'
+                : 'text-slate-500 dark:text-slate-400'
+            }`}
           >
             <User className="w-5 h-5" />
-            <span className="text-[10px]">Профиль</span>
+            <span className="text-[11px] tracking-tight">{t.navProfile}</span>
           </button>
         </div>
       </nav>
-      <OfflineIndicator />
-    </div>
-  );
 
-  return (
-    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-0 md:p-6">
-      {/* iPhone Mockup Showcase Mode ("Понт на айфон") */}
-      {showIphoneMockup ? (
-        <div className="w-full flex flex-col items-center space-y-4 py-4">
-          <div className="flex items-center justify-between w-full max-w-md px-4">
-            <div className="text-xs text-emerald-400 font-bold flex items-center space-x-1">
-              <Smartphone className="w-4 h-4" />
-              <span>iPhone 16 Pro Showcase Mode</span>
-            </div>
-            <button
-              onClick={() => setShowIphoneMockup(false)}
-              className="bg-slate-800 text-slate-300 hover:text-white px-3 py-1.5 rounded-xl text-xs font-bold"
-            >
-              Свернуть iPhone вид ✕
-            </button>
-          </div>
-
-          {/* iPhone Titanium Frame */}
-          <div className="relative w-[390px] h-[844px] bg-slate-900 rounded-[50px] ring-[12px] ring-slate-800 shadow-2xl overflow-hidden flex flex-col border-4 border-slate-700">
-            {/* Dynamic Island */}
-            <div className="absolute top-3 left-1/2 -translate-x-1/2 w-28 h-7 bg-black rounded-full z-50 flex items-center justify-between px-3">
-              <div className="w-3 h-3 rounded-full bg-slate-900"></div>
-              <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/80 animate-pulse"></div>
-            </div>
-
-            {/* iOS Status Bar */}
-            <div className="pt-3 px-6 flex justify-between items-center text-xs text-white font-semibold bg-slate-900 z-40 select-none">
-              <span>9:41</span>
-              <div className="flex items-center space-x-1.5 text-[10px]">
-                <span>5G</span>
-                <div className="w-5 h-2.5 border border-white rounded-sm p-0.5 flex items-center">
-                  <div className="h-full w-3 bg-white rounded-2xs"></div>
-                </div>
-              </div>
-            </div>
-
-            {/* App Screen inside iPhone */}
-            <div className="flex-1 overflow-y-auto bg-slate-950">
-              {renderAppContent()}
-            </div>
-
-            {/* iOS Home Indicator Bar */}
-            <div className="h-5 bg-slate-900 flex items-center justify-center pb-1">
-              <div className="w-32 h-1 bg-slate-600 rounded-full"></div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="w-full min-h-screen">
-          {renderAppContent()}
-        </div>
-      )}
+      <OfflineIndicator language={settings.language} />
     </div>
   );
 }

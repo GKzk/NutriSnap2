@@ -74,6 +74,22 @@ jobs:
         npm install --legacy-peer-deps --no-save @capacitor/core @capacitor/cli @capacitor/android
         npx cap add android
         npx cap sync android
+        node -e '
+          const fs = require("fs");
+          const p = "android/app/src/main/AndroidManifest.xml";
+          let xml = fs.readFileSync(p, "utf8");
+          const perms = [
+            "<uses-permission android:name=\"android.permission.CAMERA\" />",
+            "<uses-permission android:name=\"android.permission.READ_MEDIA_IMAGES\" />",
+            "<uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\" android:maxSdkVersion=\"32\" />"
+          ];
+          for (const perm of perms) {
+            if (!xml.includes(perm)) {
+              xml = xml.replace("<application", perm + "\n    <application");
+            }
+          }
+          fs.writeFileSync(p, xml);
+        '
         cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon
 
     - name: Upload Android APK artifact
