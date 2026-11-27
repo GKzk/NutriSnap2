@@ -17,7 +17,9 @@ export function usePWAInstall() {
     setIsInstalled(isStandalone);
 
     const userAgent = window.navigator.userAgent.toLowerCase();
-    const isIOSDevice = /iphone|ipad|ipod/.test(userAgent);
+    const isIOSDevice =
+      /iphone|ipad|ipod/.test(userAgent) ||
+      (userAgent.includes('mac') && navigator.maxTouchPoints > 1);
     setIsIOS(isIOSDevice);
 
     const handleBeforeInstallPrompt = (e: Event) => {

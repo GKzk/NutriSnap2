@@ -388,8 +388,8 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col transition-colors">
       {/* Compact 1-row Top Bar */}
-      <header className="sticky top-0 z-30 h-14 pt-safe bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4">
-        <div className="max-w-4xl mx-auto h-full flex items-center justify-between gap-4">
+      <header className="sticky top-0 z-30 pt-safe bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4">
+        <div className="max-w-4xl mx-auto h-14 flex items-center justify-between gap-4">
           <button
             type="button"
             onClick={() => setActiveTab('today')}
@@ -1079,7 +1079,7 @@ export default function App() {
 
       {/* Non-intrusive Toast */}
       {toastMessage && (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-semibold shadow-lg">
+        <div className="fixed top-[calc(env(safe-area-inset-top)+4rem)] left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-semibold shadow-lg">
           {toastMessage}
         </div>
       )}
