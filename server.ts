@@ -211,6 +211,10 @@ async function startServer() {
     return responseText;
   }
 
+  app.get("/api/health", (_req, res) => {
+    res.json({ ok: true });
+  });
+
   // API endpoint to analyze food photo using free Google Gemini models
   app.post("/api/analyze-food", async (req, res) => {
     try {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, Sun, Moon, Globe, RotateCcw } from 'lucide-react';
 import { AppSettings, UserProfile } from '../types';
 import { translations } from '../i18n';
@@ -26,6 +26,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [limitInput, setLimitInput] = useState(String(profile.dailyCalorieLimit));
   const [confirmingReset, setConfirmingReset] = useState(false);
 
+  useEffect(() => {
+    if (isOpen) {
+      setLimitInput(String(profile.dailyCalorieLimit));
+      setConfirmingReset(false);
+    }
+  }, [isOpen, profile.dailyCalorieLimit]);
+
   if (!isOpen) return null;
 
   const handleSaveLimit = () => {
@@ -37,10 +44,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="w-full max-w-md bg-white dark:bg-slate-900 border-t sm:border border-slate-200 dark:border-slate-800 rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden">
+      <div className="w-full max-w-md bg-white dark:bg-slate-900 border-t sm:border border-slate-200 dark:border-slate-800 rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
         <div className="sm:hidden w-10 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full mx-auto mt-3" />
 
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800 shrink-0">
           <h2 className="text-lg font-bold text-slate-900 dark:text-white">{t.settingsTitle}</h2>
           <button
             type="button"
@@ -52,7 +59,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
 
-        <div className="p-5 space-y-6 pb-safe">
+        <div className="p-5 space-y-6 overflow-y-auto pb-safe">
           {/* Language switcher */}
           <div className="space-y-2">
             <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-400">
@@ -186,3 +193,5 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     </div>
   );
 };
+
+

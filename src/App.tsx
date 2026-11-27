@@ -60,11 +60,29 @@ const DEFAULT_SETTINGS: AppSettings = {
   theme: 'light',
 };
 
+const DEFAULT_PUBLIC_API_BASE = 'https://nutri-snap.ai.studio';
+
+function normalizeBaseUrl(raw?: string): string {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) return '';
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'https:') return '';
+    return parsed.origin;
+  } catch {
+    return '';
+  }
+}
+
 function getAnalyzeEndpoint(): string {
+  const envBase = normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL);
+  if (envBase) {
+    return `${envBase}/api/analyze-food`;
+  }
   if (typeof window !== 'undefined') {
     const { protocol, hostname, port } = window.location;
     if (protocol === 'capacitor:' || (hostname === 'localhost' && !port)) {
-      return 'https://ais-pre-s4xkn3dceqgoobyyllnr74-177080461978.us-west2.run.app/api/analyze-food';
+      return `${DEFAULT_PUBLIC_API_BASE}/api/analyze-food`;
     }
   }
   return '/api/analyze-food';
@@ -239,7 +257,7 @@ export default function App() {
 
       const contentType = response.headers.get('content-type') || '';
       if (!contentType.includes('application/json')) {
-        throw new Error('Non-JSON response');
+        throw new Error('AUTH_REDIRECT');
       }
 
       const data = await response.json();
@@ -270,9 +288,11 @@ export default function App() {
       };
       setRequestHistory((prev) => [reqEntry, ...prev]);
       setPendingMeal(parsedMeal);
-    } catch {
+    } catch (err) {
       // Allow user to still save their photo & manually enter calories cleanly
-      setAiWarning(t.aiErrorFallback);
+      const isAuthBlocked =
+        err instanceof Error && err.message === 'AUTH_REDIRECT';
+      setAiWarning(isAuthBlocked ? t.aiAuthBlockedFallback : t.aiErrorFallback);
       setPendingMeal({
         dishName: '',
         weightGrams: 250,
